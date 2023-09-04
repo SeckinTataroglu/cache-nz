@@ -2,7 +2,6 @@ from lib2to3.pgen2.pgen import DFAState
 from logging import PlaceHolder
 import streamlit as st
 import pandas as pd
-from pandas.api.types import CategoricalDtype
 import sqlite3
 
 st.set_page_config(layout="wide")
