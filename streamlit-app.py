@@ -107,7 +107,7 @@ def selected_vessels_df(selected_vessels,
     selected_hours_str = selection_to_tuple(selected_hours)
     
     query = f"""select 
-                "Vessel Name" "IMO", "TYPE_NAME", "Riccardo Class", "Speed (knots)",
+                "Vessel Name", "IMO", "TYPE_NAME", "Riccardo Class", "Speed (knots)",
                 "LAT", "LON", "COURSE", "HEADING", "TIMESTAMP UTC", "JourneyID", "Movement_Type", 
                 "Speed in m/s", "Avg Speed per Time Increment",	"Avg Acceleration DV/DT",
                 "V/Vst", "tmp_Load_Pi_Pmax (V/Vst)^3", "Power Steady State (kW)",
@@ -294,7 +294,7 @@ if fetch_button:
         st.write(selected_vessels_df_)
 
     with tab3:
-        st.write(pd.DataFrame(selected_vessels, columns=["Vessels"]))
+        st.write(pd.DataFrame(selected_vessels_df_["Vessel Name"].unique().tolist(), columns=["Vessels"]))
 
 
 
