@@ -1,0 +1,5 @@
+### streamlit push for lfs 
+
+git add *                     
+git commit -m "Graphs added"
+git push -f  origin main   

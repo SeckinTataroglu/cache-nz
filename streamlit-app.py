@@ -1,26 +1,21 @@
+from email.policy import default
 from lib2to3.pgen2.pgen import DFAState
 from logging import PlaceHolder
 import streamlit as st
 import pandas as pd
 import sqlite3
+import plotly.express as px
+
+
 
 st.set_page_config(layout="wide")
 st.maxMessageSize = 300
 
 db_path = "./data/data.db"
-table_name = 'raw_data_20230815'
+table_name = 'AIS_2023_May'
 
 
 # Function to fetch a list of stock symbols from a file or API
-# def read_git_db():
-#     conn = sqlite3.connect(db_path)
-#     # Check if the table already exists in the database
-#     query = f"""select distinct "Vessel Name" from {table_name}"""
-    
-#     df = pd.read_sql(query, con=conn)
-
-#     conn.close()
-#     return df
 
 def unique_vessels_list():
     conn = sqlite3.connect(db_path)
@@ -67,6 +62,7 @@ def unique_dayname_list():
 
     return dayname_list
 
+
 def unique_hours_list():
     conn = sqlite3.connect(db_path)
     query = f"""select distinct "Hour" from {table_name}"""
@@ -77,7 +73,7 @@ def unique_hours_list():
     return hours_list
 
 
-
+@st.cache_data
 def selection_to_tuple(selection):
     if len(selection) == 1:
         selection_str = str(tuple(selection))[:-2]+")"
@@ -106,15 +102,21 @@ def selected_vessels_df(selected_vessels,
     selected_dayname_str = selection_to_tuple(selected_dayname)
     selected_hours_str = selection_to_tuple(selected_hours)
     
+    # "Vessel Name", "IMO", "TYPE_NAME", "Riccardo Class", "Speed (knots)",
+    # "LAT", "LON", "COURSE", "HEADING", "TIMESTAMP UTC", "JourneyID", "Movement_Type", 
+    # "Speed in m/s", "Avg Speed per Time Increment",	"Avg Acceleration DV/DT",
+    # "V/Vst", "tmp_Load_Pi_Pmax (V/Vst)^3", "Power Steady State (kW)",
+    # "Accn DV/DT m/sec^2", "V*DV/DT", "Acceleration Power (kW)", "Aux Engine Power (kW)",
+    # "Total Instantaneous Power (kW)", "Total Energy Consumption (kWh)", "Total Fuel Consumption (kG)",
+    # "Total NOx Emission (kG)", "Total PM2.5 Emissions (kG)", "Total PM10 Emissions (kG)", "Total SO2 Emissions (kG)",
+    # "Total CO2 Emissions (kG)", "Total CO2 Emissions (kG) from FC", "X_centre", "Y_centre", "Month", "DayName", "Hour"
+
+
     query = f"""select 
-                "Vessel Name", "IMO", "TYPE_NAME", "Riccardo Class", "Speed (knots)",
-                "LAT", "LON", "COURSE", "HEADING", "TIMESTAMP UTC", "JourneyID", "Movement_Type", 
-                "Speed in m/s", "Avg Speed per Time Increment",	"Avg Acceleration DV/DT",
-                "V/Vst", "tmp_Load_Pi_Pmax (V/Vst)^3", "Power Steady State (kW)",
-                "Accn DV/DT m/sec^2", "V*DV/DT", "Acceleration Power (kW)", "Aux Engine Power (kW)",
-                "Total Instantaneous Power (kW)", "Total Energy Consumption (kWh)", "Total Fuel Consumption (kG)",
+                "Vessel Name", "TYPE_NAME", "Riccardo Class", 
+                "TIMESTAMP UTC", "Movement_Type", 
                 "Total NOx Emission (kG)", "Total PM2.5 Emissions (kG)", "Total PM10 Emissions (kG)", "Total SO2 Emissions (kG)",
-                "Total CO2 Emissions (kG)", "Total CO2 Emissions (kG) from FC", "X_centre", "Y_centre", "Month", "DayName", "Hour"
+                "Total CO2 Emissions (kG)", "Total CO2 Emissions (kG) from FC", "Month", "DayName", "Hour"
 
                 from {table_name} 
                 where "Vessel Name" in {selected_vessels_str} 
@@ -131,13 +133,17 @@ def selected_vessels_df(selected_vessels,
 
 
 emissions_type_abbr = {"NOx": "Total NOx Emission (kG)",
-                       "PM2.5": "Total PM2.5 Emissions (kG)",
+                       "PM25": "Total PM2.5 Emissions (kG)",
                        "PM10": "Total PM10 Emissions (kG)",
                        "SO2": "Total SO2 Emissions (kG)",
                        "CO2": "Total CO2 Emissions (kG)",
                        "CO2 from FC": "Total CO2 Emissions (kG) from FC",
                        }
 
+db_table_mapping = {
+    "AIS 2023 May": "AIS_2023_May",
+    "AIS 2022 Annual": "AIS_2022_Annual" 
+}
 
 
 # Streamlit app
@@ -150,7 +156,12 @@ emissions_type_abbr = {"NOx": "Total NOx Emission (kG)",
 # Set the layout to 'wide' to allow more space for the sidebar
 with st.sidebar:
 # Create a sidebar for the dropdowns
-    st.sidebar.title("Parameters")
+    # st.sidebar.title("Parameters")
+
+    # Dataset Selection
+    unique_tables = ("AIS 2023 May", "AIS 2022 Annual")
+    selected_table = st.selectbox("Select Dataset:", unique_tables)
+    table_name = db_table_mapping[selected_table]
 
     # Vessels List
     unique_vessels = unique_vessels_list()
@@ -194,7 +205,7 @@ with st.sidebar:
         selected_hours = unique_hours
 
     # Emission Type
-    selected_emission_type = st.selectbox("Select Emission Type:",["NOx", "PM2.5", "PM10", "SO2", "CO2", "CO2 from FC"])
+    selected_emission_type = st.selectbox("Select Emission Type:",["NOx", "PM25", "PM10", "SO2", "CO2", "CO2 from FC"])
 
 
 
@@ -204,7 +215,7 @@ with st.sidebar:
 
 
 # OUTPUTS
-tab1, tab2, tab3 = st.tabs(["Graphs", "Raw Data", "Selected Vessels' List"])
+tab1, tab2, tab3, tab4 = st.tabs(["Graphs (Total)", "Graphs (Avg)", "Raw Data", "Selected Vessels' List"])
 # with tab1:
 #     st.title("Graphs")
 # with tab2:
@@ -225,43 +236,66 @@ if fetch_button:
     
     # GROUPING DFs
     # Day by Day
-    grouped_day_df = selected_vessels_df_.groupby(selected_vessels_df_['TIMESTAMP UTC'].dt.date)[emissions_type_abbr[selected_emission_type]].sum().reset_index()
-    # grouped_day_df = selected_vessels_df_.groupby(selected_vessels_df_['TIMESTAMP UTC'].dt.date)[emissions_type_abbr[selected_emission_type]].agg(['sum','mean']).reset_index()
+    grouped_month_df = selected_vessels_df_.groupby(selected_vessels_df_['Month'])[emissions_type_abbr[selected_emission_type]].sum().reset_index().round(2)
+    grouped_month_df.columns = ['Month', selected_emission_type]
+    month_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+    all_months_df = pd.DataFrame({"Month": month_order})
+    grouped_month_df = all_months_df.merge(grouped_month_df, on="Month", how='left').fillna(0)
+    grouped_month_df['Month'] = pd.Categorical(grouped_month_df['Month'], categories=month_order, ordered=True)
+
+    # Day by Day
+    grouped_day_df = selected_vessels_df_.groupby(selected_vessels_df_['TIMESTAMP UTC'].dt.date)[emissions_type_abbr[selected_emission_type]].sum().reset_index().round(2)
     start_date = selected_vessels_df_['TIMESTAMP UTC'].min().date()  # Start date from the data
     end_date = selected_vessels_df_['TIMESTAMP UTC'].max().date()    # End date from the data
     date_range = pd.date_range(start=start_date, end=end_date)
     grouped_day_df = grouped_day_df.set_index('TIMESTAMP UTC').reindex(date_range, fill_value=0).reset_index()
-    # grouped_day_df.columns = ['Date', f"{selected_emission_type} (Sum)", f"{selected_emission_type} (Avg)"]
     grouped_day_df.columns = ['Date', selected_emission_type]
 
     # Days of Week
-    grouped_days_week_df = selected_vessels_df_.groupby(selected_vessels_df_['DayName'])[emissions_type_abbr[selected_emission_type]].sum().reset_index()
+    grouped_days_week_df = selected_vessels_df_.groupby(selected_vessels_df_['DayName'])[emissions_type_abbr[selected_emission_type]].sum().reset_index().round(2)
     grouped_days_week_df.columns = ['Day Name', selected_emission_type]
     day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    all_days_df = pd.DataFrame({"Day Name": day_order})
+    grouped_days_week_df = all_days_df.merge(grouped_days_week_df, on="Day Name", how='left').fillna(0)
     grouped_days_week_df['Day Name'] = pd.Categorical(grouped_days_week_df['Day Name'], categories=day_order, ordered=True)
-    grouped_days_week_df = grouped_days_week_df.sort_values(by='Day Name').reset_index(drop=True)
+    # grouped_days_week_df = grouped_days_week_df.sort_values(by='Day Name').reset_index(drop=True)
 
     # Hours of Day
-    grouped_hours_day_df = selected_vessels_df_.groupby(selected_vessels_df_['Hour'])[emissions_type_abbr[selected_emission_type]].sum().reset_index()
+    grouped_hours_day_df = selected_vessels_df_.groupby(selected_vessels_df_['Hour'])[emissions_type_abbr[selected_emission_type]].sum().reset_index().round(2)
     grouped_hours_day_df.columns = ['Hours', selected_emission_type]
     grouped_hours_day_df = grouped_hours_day_df.sort_values(by="Hours")
 
+    grouped_hourly_sums = selected_vessels_df_.groupby([selected_vessels_df_['TIMESTAMP UTC'].dt.date, 'Hour'])[emissions_type_abbr[selected_emission_type]].sum().reset_index()
+    # grouped_hours_day_daily_averages = grouped_hourly_sums.groupby('Hour')[emissions_type_abbr[selected_emission_type]].mean().reset_index()
+    # grouped_hours_day_daily_averages.columns = ['Hours', selected_emission_type]
+    # grouped_hours_day_daily_averages = grouped_hours_day_daily_averages.sort_values(by="Hours")
+
+    # AIS Class Type
+    grouped_AIS_Class_df = selected_vessels_df_.groupby(selected_vessels_df_['TYPE_NAME'])[emissions_type_abbr[selected_emission_type]].sum().reset_index().round(2)
+    grouped_AIS_Class_df.columns = ["AIS Class", selected_emission_type]
+    grouped_AIS_Class_df.sort_values("AIS Class")
+
+    # Riccardo Class Type
+    grouped_Riccardo_Class_df = selected_vessels_df_.groupby(selected_vessels_df_['Riccardo Class'])[emissions_type_abbr[selected_emission_type]].sum().reset_index().round(2)
+    grouped_Riccardo_Class_df.columns = ["Riccardo Class", selected_emission_type]
+    grouped_Riccardo_Class_df.sort_values("Riccardo Class")
 
  
     # DASHBOARD LAYOUT
     with tab1:
-        # Day by Day Container
+        # Month by Month Container
         with st.container():
-            st.subheader(f"Day by Day {selected_emission_type} (kG)")
+            st.subheader(f"Month by Month {selected_emission_type} (kG)")
             col1, col2 = st.columns([4, 1])
             with col1:
-                st.bar_chart(grouped_day_df,
-                                x = 'Date',
+                st.bar_chart(grouped_month_df,
+                                x = 'Month',
                                 y = [selected_emission_type],
                                 # y = [f"{selected_emission_type} (Sum)"],
                             )  # Optional color = ['#FF0000', '#0000FF']
+                # st.write("graph")
             with col2:
-                st.write(grouped_day_df)
+                st.write(grouped_month_df.set_index("Month"))
 
         # Days of Week Container
         with st.container():
@@ -273,7 +307,20 @@ if fetch_button:
                                 y = [selected_emission_type],
                             )  # Optional color = ['#FF0000', '#0000FF']
             with col2:
-                st.write(grouped_days_week_df)
+                st.write(grouped_days_week_df.set_index("Day Name"))
+
+        # Day by Day Container
+        with st.container():
+            st.subheader(f"Day by Day {selected_emission_type} (kG)")
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                st.bar_chart(grouped_day_df,
+                                x = 'Date',
+                                y = [selected_emission_type],
+                                # y = [f"{selected_emission_type} (Sum)"],
+                            )  # Optional color = ['#FF0000', '#0000FF']
+            with col2:
+                st.write(grouped_day_df.set_index("Date"))
 
         # Hours of Day Container
         with st.container():
@@ -284,16 +331,94 @@ if fetch_button:
                                 x = 'Hours',
                                 y = [selected_emission_type],
                             )  # Optional color = ['#FF0000', '#0000FF']
+                # st.bar_chart(rouped_hours_day_daily_averages,
+                #                 x = 'Hours',
+                #                 y = [selected_emission_type],
+                #             )  # Optional color = ['#FF0000', '#0000FF']
             with col2:
-                st.write(grouped_hours_day_df)
+                st.write(grouped_hours_day_df.set_index("Hours"))
+                # st.write(grouped_hours_day_daily_averages)
+        
+        # AIS Pie Chart Container
+        with st.container():
+            st.subheader(f"Emissions Proportions by AIS Class")
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                # st.write("pie chart")
+                fig = px.pie(grouped_AIS_Class_df, values=selected_emission_type, names='AIS Class') #title='AIS Class Division'
+                # fig.show()
+                st.plotly_chart(fig)
+            
+            with col2:
+                st.write(grouped_AIS_Class_df.set_index("AIS Class"))
+
+        # Riccardo Pie Chart Container
+        with st.container():
+            st.subheader(f"Emissions Proportions by Riccardo Class")
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                # st.write("pie chart")
+                fig = px.pie(grouped_Riccardo_Class_df, values=selected_emission_type, names='Riccardo Class') #title='AIS Class Division'
+                # fig.show()
+                st.plotly_chart(fig)
+            
+            with col2:
+                st.write(grouped_Riccardo_Class_df.set_index("Riccardo Class"))
+
+
+    with tab2:
+        # Day by Day Container
+        st.write("Daily Averages can be added here if needed...")
+        # with st.container():
+        #     st.subheader(f"Day by Day {selected_emission_type} (kG)")
+        #     col1, col2 = st.columns([4, 1])
+        #     with col1:
+        #         st.bar_chart(grouped_day_df,
+        #                         x = 'Date',
+        #                         y = [selected_emission_type],
+        #                         # y = [f"{selected_emission_type} (Sum)"],
+        #                     )  # Optional color = ['#FF0000', '#0000FF']
+        #     with col2:
+        #         st.write(grouped_day_df)
+
+        # # Days of Week Container
+        # with st.container():
+        #     st.subheader(f"Days of Week {selected_emission_type} (kG)")
+        #     col1, col2 = st.columns([4, 1])
+        #     with col1:
+        #         st.bar_chart(grouped_days_week_df,
+        #                         x = 'Day Name',
+        #                         y = [selected_emission_type],
+        #                     )  # Optional color = ['#FF0000', '#0000FF']
+        #     with col2:
+        #         st.write(grouped_days_week_df)
+
+        # # Hours of Day Container
+        # with st.container():
+        #     st.subheader(f"Hours of Day {selected_emission_type} (kG)")
+        #     col1, col2 = st.columns([4, 1])
+        #     with col1:
+        #         st.bar_chart(grouped_hours_day_df,
+        #                         x = 'Hours',
+        #                         y = [selected_emission_type],
+        #                     )  # Optional color = ['#FF0000', '#0000FF']
+        #         st.bar_chart(grouped_hours_day_daily_averages,
+        #                         x = 'Hours',
+        #                         y = [selected_emission_type],
+        #                     )  # Optional color = ['#FF0000', '#0000FF']
+        #     with col2:
+        #         st.write(grouped_hours_day_df)
+        #         st.write(grouped_hours_day_daily_averages)
+
 
 
         
 
-    with tab2:
-        st.write(selected_vessels_df_)
-
     with tab3:
+        # st.write(selected_vessels_df_)
+        st.write("Raw Data can be added here if needed")
+
+    with tab4:
         st.write(pd.DataFrame(selected_vessels_df_["Vessel Name"].unique().tolist(), columns=["Vessels"]))
 
 
